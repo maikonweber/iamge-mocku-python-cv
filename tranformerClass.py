@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import os
+import requests
 
 # Diretórios
 IMAGEM_DIR = "./imagem/"
@@ -15,6 +16,68 @@ especificacoes = {
     "CROPPED": {"altura_logo": 150, "posicao": "centro"},
     "INFANTIL": {"altura_logo": 150, "posicao": "centro"},
 }
+
+def baixar_imagem(url):
+    """Baixa uma imagem a partir de uma URL."""
+    print(f"Baixando imagem de: {url}")
+    response = requests.get(url)
+    if response.status_code != 200:
+        raise ValueError(f"Erro ao baixar imagem: {response.status_code}")
+    imagem = Image.open(BytesIO(response.content))
+    return cv2.cvtColor(np.array(imagem), cv2.COLOR_RGB2BGR)
+
+for message in pubsub.listen():
+        if message['type'] == 'message':
+            print("Mensagem recebida:")
+            try:
+                payload = json.loads(message['data'])
+                url = payload.get('url')
+                id = payload.get('id')
+                category = payload.get('category')
+
+                if not url or not id or not category:
+                    print("Payload inválido:", payload)
+                    continue
+
+                processar_mockup(url, id, category)
+            except Exception as e:
+                print(f"Erro ao processar mensagem: {e}")
+
+def processar_mockup(url, id, categoria):
+    """Processa uma única camiseta com base na URL e categoria recebidas."""
+    try:
+        # Baixar a imagem
+        estampa = baixar_imagem(url)
+        config = especificacoes.get(categoria.upper())
+
+        if not config:
+            print(f"Categoria {categoria} não encontrada.")
+            return
+
+        print(f"Processando mockup para categoria: {categoria}")
+        for img_path in os.listdir(IMAGEM_DIR):
+            nome_base = os.path.splitext(img_path)[0].upper()
+            if nome_base != categoria.upper():
+                continue
+
+            img = cv2.imread(os.path.join(IMAGEM_DIR, img_path))
+            if img is None:
+                print(f"Imagem base {img_path} não encontrada ou inválida.")
+                continue
+
+            # Aplicar a estampa
+            resultado = aplicar_estampa_personalizada(img, estampa, config)
+
+            # Salvar o resultado
+            resultado_caminho = f"{RESULTADOS_DIR}/{nome_base}_resultado_{id}.jpg"
+            os.makedirs(RESULTADOS_DIR, exist_ok=True)
+            cv2.imwrite(resultado_caminho, resultado)
+
+            # Enviar a imagem processada para a API
+            sendImageForApi(resultado_caminho, 'https://dev.muttercorp.com.br/shop/image', id)
+            print(f"Imagem processada e salva em: {resultado_caminho}")
+    except Exception as e:
+        print(f"Erro ao processar mockup: {e}")
 
 
 def carregar_imagens(diretorio):
@@ -124,10 +187,31 @@ def processar_camisetas_personalizadas():
             continue
 
         # Salvar o resultado
-        resultado_caminho = f"{RESULTADOS_DIR}/{nome_base}_resultado.png"
+        resultado_caminho = f"{RESULTADOS_DIR}/{nome_base}_resultado.jpg"
         os.makedirs(RESULTADOS_DIR, exist_ok=True)
         cv2.imwrite(resultado_caminho, resultado)
+        sendImageForApi(resultado_caminho, 'https://dev.muttercorp.com.br/shop/image', 1)
         print(f"Imagem processada e salva em: {resultado_caminho}")
+
+        try:
+            os.remove(resultado_caminho)
+            print(f"Imagem apagada: {resultado_caminho}")
+        except Exception as e:
+            print(f"Erro ao apagar a imagem {resultado_caminho}: {e}")
+
+def sendImageForApi(image_path, api_url, id):
+    with open (image_path, 'rb') as image_file:
+        data = {'id':  id }
+        files = { 'image': (image_path, image_file, 'image/jpg')}
+
+        headers = {
+            'Authorization': f'Bearer {'Can'}'
+        }        
+
+        response = requests.post(api_url, data=data, files=files, headers=headers)
+        print(f"Status Code: {response.status_code}")
+        print(f"Resposta: {response.text}")
+
 
 if __name__ == "__main__":
     processar_camisetas_personalizadas()
